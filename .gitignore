@@ -1,0 +1,9 @@
+# R / RStudio
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+.Rproj.user/
+
+# OS
+.DS_Store
