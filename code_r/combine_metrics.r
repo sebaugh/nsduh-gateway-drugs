@@ -70,7 +70,7 @@ plots_metrics_tables <- function(hard_drug) {
   ### order for variables
   desired_order = c(
     "(Intercept)",
-    "ALC_przed1", "VAP_przed1", "SMK_przed1", "SMK_przed2", "MRJ_przed1",
+    "ALC_befor1", "VAP_befor1", "SMK_befor1", "SMK_befor2", "MRJ_befor1",
     "GENDER2", "ETHNIC2", "ETHNIC3", "ETHNIC4",
     "RLGINF2", "RLGINF3", "RLGINF4"
   )
@@ -96,12 +96,12 @@ plots_metrics_tables <- function(hard_drug) {
       p_val = round(p_val, 4)
     ) %>%
     select(Zmienna, Odds_ratio, SE, p_val) %>%
-    rename("Iloraz szans (OR)" = Odds_ratio)
+    rename("Odds ratio (OR)" = Odds_ratio)
 
   stargazer(param_est,
             float = FALSE,
             type = "latex",
-            title = "Podsumowanie estymowanych parametrów",
+            title = "Summary of estimated coefficients",
             summary = FALSE,
             digits = 3,
             out = paste0(tabDir, "tab_", hard_drug, "_boot_coefs.tex"))
@@ -125,8 +125,8 @@ plots_metrics_tables <- function(hard_drug) {
     mutate(var = as.character(var)) %>%
     mutate(
           var = case_when(
-                          var == "Recall" ~ "Czułość",
-                          var == "Precision" ~ "Precyzja",
+                          var == "Recall" ~ "Recall",
+                          var == "Precision" ~ "Precision",
                           var == "F1_Score" ~ "F1 score",
                           var == "R_NK" ~ "R_{NK}",
                           TRUE ~ var
@@ -143,11 +143,11 @@ plots_metrics_tables <- function(hard_drug) {
 file_path <- paste0(tabDir, "tab_", hard_drug, "_boot_fit.tex")
 file_raw <- readChar(file_path, file.info(file_path)$size)
 
-# Poprawiona zamiana wzorca
+# fixed pattern substitution
 file_fixed <- gsub("R\\\\_\\\\\\{NK\\\\\\}", "\\\n\\\\ensuremath{R^{2}_{NK}}", file_raw)
 file_fixed
 
-# Zapisanie poprawionego pliku
+# save fixed file
 writeLines(file_fixed, paste0(tabDir, "tab_", hard_drug, "_boot_fit.tex"), useBytes = TRUE)
 
 }

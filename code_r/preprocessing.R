@@ -1,7 +1,7 @@
-### Czyszczenie
+### clean the environment
 rm(list = ls())
 
-### Biblioteki
+### libraries
 library(readr)
 library(dplyr)
 library(tidyr)
@@ -10,25 +10,23 @@ library(ggplot2)
 library(skimr)
 library(stargazer)
 
-### UWAGA: Założenie jest takie, że katalog roboczy to jest główny
-### katalog repo.
-
-### Ścieżki
+### paths
 tabDir <- "../paper/tabs/"
 
-### Wczytanie oryginalnego zbioru danych
+### load the original dataset
 load("../../data/NSDUH_2022.Rdata")
 
 NSDUH_2022 <- puf2022_110424
 rm(puf2022_110424)
 
-# zestandaryzowanie nazw zmiennych
+# standardise the variable names to upper case
 names(NSDUH_2022) <- toupper(names(NSDUH_2022))
 
+### variables required to construct the survey structure
 weighting_vars <- c("VEREP",
                     "VESTR_C",
                     "ANALWT2_C"
-                    ) ### zmienne na potrzeby konstrukcji projektu ankiety
+                    ) 
 
 softdrug_vars <- c("IRCDUAGE", ### age started smoking every day
                    "IRCIGAGE", ### age tried smoking for the first time
@@ -67,22 +65,22 @@ imputation_ind <- c(
   "IIMETHAMAGE"                 
   )
 
-demo_vars <- c("IRSEX", ### Płeć
-               "AGE3", ### kategorie wiekowe
-               "CATAGE", ### zagregowane kategorie wiekowe
+demo_vars <- c("IRSEX", ### sex
+               "AGE3", ### age categories
+               "CATAGE", ### aggregeated age
                "INCOME", ### recode tot family income revised
-               "NEWRACE2", ### grupa etniczna
+               "NEWRACE2", ### ethnicity
                "SNRLDCSN", ### religious beliefs influence decisions adults
                "YERLDCSN", ### religious beliefs influence decisions youth
-               "EDUHIGHCAT", ### najwyższy stopień edukacji
-               "PDEN10" ### gęstośc populacji
+               "EDUHIGHCAT", ### highest education level
+               "PDEN10" ### population density
                )
 
 demo_imp <- c("IIEDUHIGHST2", ### imputation for education
               "IIFAMIN3" ### imputation for tot family
               )
 
-# wybór zmiennych
+# variable selection
 NSDUH_2022_filtered <- NSDUH_2022 %>%
   dplyr::select(all_of(c(weighting_vars,
       softdrug_vars,
@@ -95,16 +93,16 @@ NSDUH_2022_filtered <- NSDUH_2022 %>%
   )
 rm(NSDUH_2022)
 
-# Slownik z nowymi nazwami
+# new variable names dictionary
 new_names <- c(
-  # Zmienne miekkich narkotykow
+  # "soft" drugs"
   "ESM" = "IRCDUAGE",
   "FSM" = "IRCIGAGE",
   "VAP" = "IRNICVAPAGE",
   "ALC" = "IRALCAGE",
   "MRJ" = "IRMJAGE",
   
-  # Zmienne twardych narkotykow
+  # "hard" drugs
   "COC" = "IRCOCAGE",
   "HER" = "IRHERAGE",
   "CRK" = "IRCRKAGE",
@@ -115,7 +113,7 @@ new_names <- c(
   "STM" = "IRSTMNMAGE",
   "MTH" = "IRMETHAMAGE",
   
-  # Zmienne imputacji narkotykow
+  # imputation indicators
   "ESM_IMP" = "IICDUAGE", 
   "FSM_IMP" = "IICIGAGE", 
   "VAP_IMP" = "IINICVAPAGE", 
@@ -131,7 +129,7 @@ new_names <- c(
   "STM_IMP" = "IISTMNMAGE", 
   "MTH_IMP" = "IIMETHAMAGE",
   
-  # Demograficzne
+  # demographic variables
   "GENDER" = "IRSEX",
   "AGECAT" = "CATAGE",
   "AGEPRC" = "AGE3",
@@ -145,11 +143,11 @@ new_names <- c(
   "POPDEN" = "PDEN10"
 )
 
-# zmiana nazw kolumn
+# rename the variables
 NSDUH_2022_renamed <- NSDUH_2022_filtered %>% rename(!!!new_names)
 rm(NSDUH_2022_filtered)
 
-# zmiana nazw w wektorach
+# rename the names in vectors
 softdrug_vars <- names(new_names)[new_names %in% softdrug_vars]
 meddrug_vars <- names(new_names)[new_names %in% meddrug_vars]
 nmddrug_vars <- names(new_names)[new_names %in% nmddrug_vars]
@@ -158,22 +156,19 @@ demo_imp <- names(new_names)[new_names %in% demo_imp]
 
 
 
-# funkcja do porównania wieków
+# first time age initiation comparison
 create_comparisons <- function(data, var, others) {
   others <- others[others != var]
   comparisons <- map_dfc(others, ~ {
-    ## zastosowanie tylko do środków leczniczych wykorzystywanych bez
-    ## recepty 993 - użytkownik ale nie znamy wieku inicjacji, 999
-    ## nigdy nie korzystał
-    new_col <- if_else(data[[.x]] %in% c(993, 999), ## użytkownik miękkich narkotyków
+    ## misuse of prescription drugs
+    ## 993 - user but age unknown,
+    ## 999 - never used
+    new_col <- if_else(data[[.x]] %in% c(993, 999), ## "soft" drugs user
       if_else(data[[var]] < 150,
-        ## przypadek w którym użytkownik zaczął nadużywać leki bez
-        ## recepty ale nie wiadomo w jakim wieku, a jednocześnie
-        ## zażywa miękkie używki stąd brak danych nie ma możliwości
-        ## porównania
+        ## unknown age of first prescription drug misuse
+        ## AND a "soft" drugs user - comparison impossible
         if_else(data[[.x]] == 993 & .x != "ESM", NA, 1L),
-        ## nigdy nie był użytkownikiem miękkiej używki
-        0L),
+        ## never used a "soft" drug 0L),
       ## jeśli nie był użytkownikiem miękkiej używki to możliwe
       ## wartości data[[var]] to 991 i 993 w obu przypadkach jeśli
       ## respondent nie jest użytkownikiem twardych używek to
@@ -181,53 +176,52 @@ create_comparisons <- function(data, var, others) {
       ## data[[var]] dla nieużytkowników miękkich będzie większe lub
       ## równe zatem da wartość FALSE
       data[[var]] < data[[.x]]) 
-    setNames(as_tibble(new_col), paste(var, "przed", .x, sep = "_"))
+    setNames(as_tibble(new_col), paste(var, "befor", .x, sep = "_"))
   })
   return(comparisons)
 }
 
-# dodanie zmiennych dla twardych narkotyków bez medycznych i medycznych
+# aggregate the "hard" drugs into prescription, non-medical and all "hard"
 NSDUH_2022_renamed <- NSDUH_2022_renamed %>%
   mutate(MED = pmin(SED, TRQ, PNK, STM),
          NMD = pmin(COC, HER, CRK, HAL, MTH),
          HDG = pmin(COC, HER, CRK, HAL, MTH, SED, TRQ, PNK, STM))
 
-# wektor z nazwami kolumn narkotyków
+# vectors with added drug categories
 meddrug_vars <- c("MED", meddrug_vars)
 nmddrug_vars <- c("NMD", nmddrug_vars)
 harddrug_vars <- c(meddrug_vars, nmddrug_vars)
 drugs <- c(softdrug_vars, harddrug_vars)
 
-# utworzenie porównań
+# create comparisons
 comparison_results <- map(softdrug_vars, 
                           ~ create_comparisons(NSDUH_2022_renamed, 
                                                .x, 
                                                c(harddrug_vars, "HDG")))
 
-# dołączenie porównań do oryginalnego zbioru
+# binding the comparisons to the dataset
 NSDUH_2022_final_dataset <- bind_cols(NSDUH_2022_renamed, 
                                       bind_cols(comparison_results)) %>%
   mutate(across(all_of(c(harddrug_vars, "HDG")),
-                ~ get(paste0("FSM_przed_", cur_column())) + 
-                  get(paste0("ESM_przed_", cur_column())),
-                .names = "SMK_przed_{.col}"))
+                ~ get(paste0("FSM_befor_", cur_column())) + 
+                  get(paste0("ESM_befor_", cur_column())),
+                .names = "SMK_befor_{.col}"))
 rm(NSDUH_2022_renamed, comparison_results)
 
-### sprawdzenie czy zmienne dotyczące inicjacji palenia i nałogowego są poprawne
-### względem siebie
+### testing validity of first time smoking and everyday smoking comparison
 violations <- sapply(c(harddrug_vars, "HDG"), function(drug) {
-  any(NSDUH_2022_final_dataset[[paste0("ESM_przed_", drug)]] > 
-        NSDUH_2022_final_dataset[[paste0("FSM_przed_", drug)]], na.rm = TRUE)
+  any(NSDUH_2022_final_dataset[[paste0("ESM_befor_", drug)]] > 
+        NSDUH_2022_final_dataset[[paste0("FSM_befor_", drug)]], na.rm = TRUE)
 })
 print(violations)
 
 
 
-### usunięcie zmiennych palenia
+### removing everyday and first time smoking
 NSDUH_2022_final_dataset <- NSDUH_2022_final_dataset %>%
-  select(-matches("(ESM|FSM)_przed_"))
+  select(-matches("(ESM|FSM)_befor_"))
 
-# wizualizacja zmiennych imputacji
+# imputation variables visualised
 NSDUH_2022_final_dataset %>%
   dplyr::select(contains("_IMP"), c("ANALWT2_C")) %>%
   pivot_longer(contains("_IMP"), names_to = "drug", values_to = "values") %>%
@@ -236,8 +230,7 @@ NSDUH_2022_final_dataset %>%
   facet_wrap(~drug) + 
   theme_minimal()
 
-# rekodowanie zmiennych ind i dodanie zmiennych czy kiedykolwiek brana używka
-# przekształcenie zmiennych demograficznych na typ factor
+# recoding imputation variables, refactoring demographic variables
 NSDUH_2022_final_dataset <- NSDUH_2022_final_dataset %>%
   mutate(across(contains("_IMP"),~ ifelse(. %in% c(1, 9), 0, 1)),
          across(all_of(c(softdrug_vars, nmddrug_vars)), 
@@ -245,9 +238,9 @@ NSDUH_2022_final_dataset <- NSDUH_2022_final_dataset %>%
          across(all_of(c(meddrug_vars, "HDG")), 
                 ~ ifelse((. < 100) | (. == 993) , 1, 0), .names = "EVER_{.col}"),
          across(all_of(demo_vars), ~as.factor(.)),
-         across(contains("_przed_"), ~as.factor(.)))
+         across(contains("_befor_"), ~as.factor(.)))
 
-# wykresy dla zmiennych demograficznych
+# demographic variables visualisations
 NSDUH_2022_final_dataset %>%
   dplyr::select(matches("^.{6}$"), c("ANALWT2_C")) %>%
   pivot_longer(matches("^.{6}$"), 
@@ -257,11 +250,11 @@ NSDUH_2022_final_dataset %>%
   facet_wrap(~zmienna, scales = "free") + 
   theme_minimal()
 
-#rekodowanie zmiennych demograficznych
+# recoding demographic variables
 NSDUH_2022_final_dataset <- NSDUH_2022_final_dataset %>%
   mutate(
     ETHNIC = factor(case_when(
-      ETHNIC %in% c(3, 4, 5, 6) ~ 4, # Łączenie kategorii 3,4,5,6
+      ETHNIC %in% c(3, 4, 5, 6) ~ 4, # aggregating 3,4,5,6
       ETHNIC == 1 ~ 1,
       ETHNIC == 2 ~ 2,
       ETHNIC == 7 ~ 3)
@@ -275,7 +268,7 @@ NSDUH_2022_final_dataset <- NSDUH_2022_final_dataset %>%
     ) %>%
   dplyr::select(-c("RLGIFA", "RLGIFY", "AGECAT"))
 
-# # tworzenie zmiennych do oszacowania wieku respondentów, oraz początku inicjacji
+# # creating variables aimed at estimating participants age and initiation age
 # NSDUH_2022_final_dataset <- NSDUH_2022_final_dataset %>%
 #   mutate(across(matches("^.{3}$"), ~ if_else(. > 100, NA, .)),
 #          MIN_INIT = do.call(pmin, c(across(all_of(softdrug_vars)), 
@@ -302,13 +295,13 @@ demo_vars <- demo_vars[!demo_vars %in% c("RLGIFY", "RLGIFA")]
 demo_vars <- c(demo_vars, "RLGINF")
 
 
-### tabela z podsumowaniem danych
+### data summary
 basic_stats <- NSDUH_2022_final_dataset %>%
   skim()
 
 names(basic_stats)
 
-# sprawdzanie liczby obserwacji z NA
+# check for NAs
 sum(apply(NSDUH_2022_final_dataset, 1, function(x) any(is.na(x))))
 dim(NSDUH_2022_final_dataset)
 
@@ -320,7 +313,7 @@ missing_data <- basic_stats %>%
   rename(
     Zmienna = skim_variable,
     N = n_missing,
-    "Udział braków" = complete_rate
+    "Missing share" = complete_rate
   )
 print(missing_data)
 
@@ -340,7 +333,7 @@ save(NSDUH_2022_final_dataset,
      file = paste0(save_path, "NSDUH_2022_final_dataset.Rdata"))
 
 
-### imputacja danych; z jakiegoś powodu pakiet działa tylko na świeżej sesji R
+### data imputation using random forest, library worked only on a fresh session
 setwd("~/projekty_git/magisterska/code_r")
 library(missForest)
 load("../data/NSDUH_2022_final_dataset.Rdata")

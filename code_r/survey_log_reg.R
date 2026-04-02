@@ -1,7 +1,7 @@
-### Czyszczenie
+### clean the environment
 rm(list = ls())
 
-### biblioteki
+### libraries
 library(survey)
 library(tidyr)
 library(dplyr)
@@ -11,21 +11,21 @@ library(svyROC)
 library(UBL)
 library(parallel)
 
-### Wczytanie danych
+### load data
 load("../data/NSDUH_2022_final_dataset.Rdata")
 load("../data/weighting_vars.Rdata")
 load("../data/harddrug_vars.Rdata")
 load("../data/softdrug_vars.Rdata")
 load("../data/demo_vars.Rdata")
 
-### ścieżki
+### paths
 tabDir <- "../paper/tabs/"
 pltDir <- "../paper/plots/"
 
 hard_drugs <- harddrug_vars
 
 
-### 
+### calculate the pseudo R^2 on a test data set
 psrsq_nglk <- function(object, null_model, design_og, key_var, predicted){
   w<-weights(design_og,"sampling")
   N<-sum(w)
@@ -47,59 +47,54 @@ psrsq_nglk <- function(object, null_model, design_og, key_var, predicted){
 
 fit_svyglm2 <- function(hard_drug, data, soft_drugs, demo, weighting_vars, boot_n){
 
-  # Funkcja do dynamicznego trenowania regresji logistycznej i zwracania
-  # modeli na danych zwazonych, niezwazonych oraz wskaznikow dopasowania dla modelu
-  # na danych zwazonych.
+  # Function for dynamic fitting of logistic regression models, saves following data on hard drive
+  # models fitted on both weighted and unweighted data, measures of fit 
+  # on the weighted dataset.
   # 
   # Input:
-  # - hard_drug - zmienna objasniana wskazująca na to czy kiedykolwiek doszło do
-  # inicjacji z daną niedozwoloną uzywka
-  # - data - zbior danych nsduh
-  # - soft_drugs - wektor z 3 literowymi nazwami miekkich uzywek wykorzystywanych
-  # w modelu
-  # - demo - zmienne demograficzne sa wpisywane do formuly modelu bez zmian
-  # - weighting_vars - zmienne definiujace strukture ankietowa zbioru
-  # - boot_n - liczba prób bootstrapowych
+  # - hard_drug - dependant variable, lifetime use of a drug
+  # - data - preprocessed nsduh dataset
+  # - soft_drugs - vector with 3 letter names of soft drugs for predictions
+  # - demo - demographic variables
+  # - weighting_vars - survey design variable names
+  # - boot_n - bootstrap number
   # 
-  # output:
-  # - funkcja zapisuje modele, oraz odpowiadające im ramki danych z dopasowaniem
-  # do danych oryginalnych, oraz współczynniki
   
-  ### start czasu
+  ### time start
   start_time = Sys.time()
   
-  ### ścieżka do zapisywania danych
+  ### path for saving results
   modDir <- "../data/model_results/"
   
-  ### przewidywana zmienna
+  ### dependant variable
   key_var <- paste0("EVER_", hard_drug)
   
-  ### nazwy zmiennych niezaleznych
-  soft_drugs_przed <- unname(sapply(soft_drugs, 
+  ### independant variables
+  soft_drugs_befor <- unname(sapply(soft_drugs, 
                                     function(drug) 
-                                      paste0(drug, "_przed_", hard_drug)))
+                                      paste0(drug, "_befor_", hard_drug)))
 
-  ### tworzenie wektora predyktorów i filtrowanie kolumn zbioru
-  predictors <- c(soft_drugs_przed, demo)
+  ### vector with the predictors' names and filtering dataset
+  predictors <- c(soft_drugs_befor, demo)
   data = data %>%
     dplyr::select(all_of(c(predictors, key_var, weighting_vars))) %>%
     mutate(!!sym(key_var) := factor(.[[key_var]]),
-           across(contains("przed"), ~as.factor(.))) 
+           across(contains("befor"), ~as.factor(.))) 
   
-  ### standaryzowanie nazw predyktorow dla wszystkich modeli
-  variable_names = gsub(paste0("_przed_", hard_drug), "_przed", colnames(data))
-  predictors = gsub(paste0("_przed_", hard_drug), "_przed", predictors)
+  ### standardise the names of predictors for all models
+  variable_names = gsub(paste0("_befor_", hard_drug), "_befor", colnames(data))
+  predictors = gsub(paste0("_befor_", hard_drug), "_befor", predictors)
   colnames(data) = variable_names
   
-  ### próg odciecia dla regresji
+  ### cramer threshold for log regression
   cramer_threshold = 
     sum((data[[key_var]] == 1) * data$ANALWT2_C) / sum(data$ANALWT2_C)
   
-  ### formula modelu
+  ### model
   formula <- as.formula(paste(key_var, "~", 
                               paste(predictors, collapse = " + ")))
   
-  ### model prosty na potrzeby R^2
+  ### simple model used for pseudo R^2 calculation
   survey_null_design = svydesign(ids = ~VEREP,
                                 strata = ~VESTR_C,
                                 weights = ~ANALWT2_C,
@@ -125,7 +120,7 @@ fit_svyglm2 <- function(hard_drug, data, soft_drugs, demo, weighting_vars, boot_
       return(as.data.frame(processed_data))
     })
   
-  ### tworzenie "bootstrapow" i trenowanie modeli
+  ### "bootstraps" and fitting models
   for (i in 1:boot_n) {
     
  ### smote
@@ -145,26 +140,26 @@ fit_svyglm2 <- function(hard_drug, data, soft_drugs, demo, weighting_vars, boot_
     mutate(VEREP = as.numeric(VEREP),
            VESTR_C = as.numeric(VESTR_C))
 
-  ### projekt ankiety dla replikatu
+  ### survey design for a replicate
   survey_design_replica = svydesign(ids = ~VEREP,
             strata = ~VESTR_C,
             weights = ~ANALWT2_C,
             data = data_replicate,
             nest = TRUE)
   
-  ### model ankietowy
+  ### survey design
   model_svy <- svyglm(formula, 
                       design = survey_design_replica, 
                       family = quasibinomial())
   
-  ### tworzenie predykcji na danych pierwotnych
+  ### predictions on the original dataset
   data_pred = data %>%
     mutate(est_prob = as.vector(predict(model_svy, 
                               newdata = data,
                               type = "response"))) %>%
     mutate(predictions = factor(ifelse(est_prob >= cramer_threshold, 1, 0)))
   
-  ### projekt ankiety dla oryginalnych danych dla predykcji
+  ### survey design on the original data for predictions
   survey_design_og = svydesign(ids = ~VEREP,
                                strata = ~VESTR_C,
                                weights = ~ANALWT2_C,
@@ -178,12 +173,12 @@ fit_svyglm2 <- function(hard_drug, data, soft_drugs, demo, weighting_vars, boot_
               tag.event = "1",
               tag.nonevent = "0")
   
-  ### macierz bledow
+  ### confusion matrix
   conf_matrix <- svytable(as.formula(paste("~", key_var, "+ predictions")),
                           design = survey_design_og)
   
+  # fit metrics
   if(ncol(conf_matrix)==2){
-  ### liczenie metryk dla modelu ankietowego na podstawie macierzy bledow
     TP <- conf_matrix["1", "1"]
     FP <- conf_matrix["0", "1"]
     FN <- conf_matrix["1", "0"] 
@@ -197,7 +192,7 @@ fit_svyglm2 <- function(hard_drug, data, soft_drugs, demo, weighting_vars, boot_
     f1_score = NA_real_
   }
   
-  ### macierz podsumowujaca z metrykami
+  ### summary of fit
   metrics_example <- data.frame(
     R_boot = psrsq(model_svy, method = "Nagelkerke"),
     R_NK = psrsq_nglk(model_svy, 
@@ -212,7 +207,7 @@ fit_svyglm2 <- function(hard_drug, data, soft_drugs, demo, weighting_vars, boot_
     )
   coefs_extracted <- as.data.frame(t(model_svy$coefficients))
 
-  ### celem oszczędzania RAMu dane są zapisywane na dysku a obiekty usuwane
+  ### data is saved to a hard drive and removed from RAM
   save(model_svy,
        file = paste0(modDir, hard_drug, "_model_", i, ".RData"))
   save(metrics_example,
@@ -228,6 +223,7 @@ fit_svyglm2 <- function(hard_drug, data, soft_drugs, demo, weighting_vars, boot_
      survey_design_replica)
   gc(verbose = FALSE)
   
+  # progress
   if (i == 1){print("First rep done")}
   if (i == floor(boot_n * 0.25)) {
     print(paste(hard_drug, "25%"))
@@ -243,7 +239,7 @@ fit_svyglm2 <- function(hard_drug, data, soft_drugs, demo, weighting_vars, boot_
 }
 
 
-### trenowanie modeli dla wszystkich uzywek
+### fit models for all drugs
 mclapply(c(hard_drugs, "HDG"), 
        function(drug) fit_svyglm2(drug, 
                                   NSDUH_2022_final_dataset, 
